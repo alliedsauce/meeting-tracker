@@ -1,0 +1,64 @@
+/* ===== ค่าพื้นฐาน ===== */
+:root {
+  --primary: #1f4e79;
+  --border: #d0d7de;
+  --bg: #f5f7fa;
+  --text: #1f2328;
+  --muted: #6e7781;
+  --danger: #c62828;
+  --danger-bg: #fdecea;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Leelawadee UI", "Tahoma", sans-serif;
+  font-size: 15px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* ===== ส่วนหัว ===== */
+.app-header {
+  background: var(--primary);
+  color: #fff;
+  padding: 16px 24px;
+}
+.app-header h1 { margin: 0; font-size: 22px; }
+.app-header .subtitle { margin: 4px 0 0; opacity: 0.85; }
+
+/* ===== เนื้อหา ===== */
+main { padding: 16px 24px; }
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 32px 0;
+  margin: 0;
+}
+
+.muted { color: var(--muted); }
+
+/* ===== ส่วนท้าย ===== */
+.app-footer {
+  padding: 8px 24px 24px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.app-footer .error { color: var(--danger); font-weight: bold; }

@@ -1,0 +1,9 @@
+# ไฟล์ Excel ที่ส่งออก/สำรอง มีชื่อและอีเมลบุคคล ไม่เก็บใน git
+*.xlsx
+*.xls
+*.csv
+
+# ไฟล์ชั่วคราวของ Office และ Windows
+~$*
+Thumbs.db
+desktop.ini

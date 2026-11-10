@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบติดตามมติที่ประชุม</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>ระบบติดตามมติที่ประชุม</h1>
+    <p class="subtitle">สำนักวิชาการ</p>
+  </header>
+
+  <main>
+    <!-- แถบเครื่องมือ (ปุ่มต่าง ๆ จะเพิ่มในขั้นถัดไป) -->
+    <section class="toolbar" id="toolbar">
+      <span class="muted">ยังไม่มีเครื่องมือ — จะเพิ่มในขั้นที่ 2–5</span>
+    </section>
+
+    <!-- พื้นที่ตารางรายการมติ -->
+    <section class="card" id="list-area">
+      <p class="empty">ยังไม่มีรายการมติ</p>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span id="status-text">กำลังโหลด...</span>
+  </footer>
+
+  <!-- ไลบรารีอ่าน/เขียน Excel (SheetJS) เก็บไว้ในเครื่อง ใช้ได้แม้ไม่มีอินเทอร์เน็ต -->
+  <script src="lib/xlsx.full.min.js"></script>
+  <!-- โค้ดหลักของแอป -->
+  <script src="app.js"></script>
+</body>
+</html>
