@@ -29,7 +29,7 @@ const STATUS_LABELS = {
 //   owners,      // ข้อความ คั่นด้วยจุลภาค เช่น "คุณ ก, คุณ ข"
 //   emails,      // ข้อความ คั่นด้วยจุลภาค เช่น "a@x.com, b@x.com"
 //   dueDate, status, note,
-//   sentDates,   // วันที่บันทึกว่าส่งอีเมลแล้ว (ใช้ในขั้นที่ 4) เช่น ["2026-11-10"]
+//   sentDates,   // วันที่บันทึกว่าส่งอีเมลแล้ว เรียงจากเก่าไปใหม่ เช่น ["2026-10-25", "2026-11-10"]
 //   createdAt, updatedAt
 // }
 // วันที่ทั้งหมดเก็บเป็นรูปแบบ "ปปปป-ดด-วว" แบบ ค.ศ. เช่น "2026-11-10"
@@ -186,7 +186,10 @@ function compareItems(a, b) {
     ? va - vb
     : String(va).localeCompare(String(vb), 'th', { numeric: true });
   // ค่าเท่ากัน → เรียงตามกำหนดเสร็จ แล้วตามลำดับที่เพิ่ม
-  if (result === 0) result = a.dueDate.localeCompare(b.dueDate) || a.createdAt.localeCompare(b.createdAt);
+  if (result === 0) {
+    result = (a.dueDate || '').localeCompare(b.dueDate || '') ||
+             (a.createdAt || '').localeCompare(b.createdAt || '');
+  }
   return result * view.sortDir;
 }
 
@@ -973,8 +976,9 @@ function parseWorkbook(workbook) {
     const sentDates = [];
     for (const part of splitList(text('sentDates'))) {
       const iso = parseExcelDate(part);
-      if (iso) sentDates.push(iso);
-      else rowErrors.push(`วันที่ส่งอีเมลอ่านไม่ได้ ("${part}")`);
+      if (!iso) rowErrors.push(`วันที่ส่งอีเมลอ่านไม่ได้ ("${part}")`);
+      else if (iso > todayIso()) rowErrors.push(`วันที่ส่งอีเมลเป็นวันในอนาคต ("${part}")`);
+      else sentDates.push(iso);
     }
 
     for (const [field, msg] of validateItem(data)) {
