@@ -39,6 +39,44 @@ main { padding: 16px 24px; }
   margin-bottom: 12px;
 }
 
+/* ตัวเลขสรุป */
+.summary { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.chip {
+  font: inherit;
+  font-size: 14px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  cursor: pointer;
+}
+.chip:hover { background: #eef1f4; }
+.chip-danger { color: var(--danger); border-color: #e8b4b4; background: var(--danger-bg); }
+.chip-danger:hover { background: #f9d6d2; }
+
+/* แถบตัวกรอง */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+.filters label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); }
+.filters label.grow { flex: 1; min-width: 220px; }
+.filters select,
+.filters input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+}
+
+.result-count { margin: 0 0 8px; }
+#filter-status, #filter-owner { min-width: 170px; }
+
 .card {
   background: #fff;
   border: 1px solid var(--border);
@@ -94,7 +132,7 @@ main { padding: 16px 24px; }
   font-size: 14px;
   white-space: nowrap;
 }
-.data-table .actions { display: flex; gap: 4px; }
+.data-table .actions { display: flex; gap: 4px; flex-wrap: wrap; }
 .data-table .note {
   margin-top: 6px;
   font-size: 13px;
@@ -178,3 +216,16 @@ dialog h2 { margin: 0 0 16px; font-size: 19px; color: var(--primary); }
 /* คอลัมน์เรื่อง/มติ ไม่ให้แคบจนอ่านยาก (จอแคบจะเลื่อนตารางซ้าย-ขวาแทน) */
 .data-table .col-resolution { min-width: 260px; }
 .data-table td:first-child { min-width: 140px; }
+
+/* หัวคอลัมน์ที่กดเรียงได้ */
+.data-table th.sortable { cursor: pointer; user-select: none; }
+.data-table th.sortable:hover { background: #dfe6ee; }
+.data-table th.sorted { color: var(--primary); }
+.data-table th .arrow { font-size: 11px; }
+
+/* รายการที่เลยกำหนด: พื้นแดงอ่อน + แถบแดงด้านซ้าย */
+.data-table tr.row-overdue td { background: var(--danger-bg); }
+.data-table tr.row-overdue td:first-child { box-shadow: inset 4px 0 0 var(--danger); }
+.due-note { font-size: 12px; margin-top: 2px; }
+.overdue-text { color: var(--danger); font-weight: bold; }
+.soon-text { color: #8a5a00; }

@@ -117,22 +117,126 @@ function multiline(text) {
 // ตาราง
 // =====================================================================
 
+// สถานะการแสดงผลปัจจุบัน (ตัวกรอง + การเรียง)
+const view = {
+  status: 'all',     // all | not_done | overdue | not_started | in_progress | done
+  owner: '',         // '' = ทุกคน
+  text: '',          // คำค้นหา
+  sortKey: 'dueDate',
+  sortDir: 1,        // 1 = น้อยไปมาก, -1 = มากไปน้อย
+};
+
+// ลำดับสถานะเวลาเรียง
+const STATUS_ORDER = { not_started: 0, in_progress: 1, done: 2 };
+
+// วิธีหยิบค่าที่ใช้เรียงของแต่ละคอลัมน์
+const SORT_VALUES = {
+  meeting: i => i.meetingName + ' ' + i.meetingNo,
+  meetingDate: i => i.meetingDate,
+  owners: i => i.owners,
+  dueDate: i => i.dueDate,
+  status: i => STATUS_ORDER[i.status] ?? 9,
+};
+
+// เลยกำหนด = กำหนดเสร็จผ่านไปแล้ว และยังไม่เสร็จ
+function isOverdue(item, today) {
+  return item.status !== 'done' && !!item.dueDate && item.dueDate < today;
+}
+
+// จำนวนวันระหว่างวันที่สองวัน (รูปแบบ "ปปปป-ดด-วว")
+function daysBetween(fromIso, toIso) {
+  const toUtc = iso => { const [y, m, d] = iso.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+  return Math.round((toUtc(toIso) - toUtc(fromIso)) / 86400000);
+}
+
+function matchesFilters(item, today) {
+  if (view.status === 'not_done' && item.status === 'done') return false;
+  if (view.status === 'overdue' && !isOverdue(item, today)) return false;
+  if (STATUS_LABELS[view.status] && item.status !== view.status) return false;
+
+  if (view.owner && !splitList(item.owners).includes(view.owner)) return false;
+
+  if (view.text) {
+    const haystack = [item.meetingName, item.meetingNo, item.resolution,
+                      item.owners, item.emails, item.note].join(' ').toLowerCase();
+    if (!haystack.includes(view.text.toLowerCase())) return false;
+  }
+  return true;
+}
+
+function compareItems(a, b) {
+  const getValue = SORT_VALUES[view.sortKey];
+  const va = getValue(a), vb = getValue(b);
+  let result = typeof va === 'number'
+    ? va - vb
+    : String(va).localeCompare(String(vb), 'th', { numeric: true });
+  // ค่าเท่ากัน → เรียงตามกำหนดเสร็จ แล้วตามลำดับที่เพิ่ม
+  if (result === 0) result = a.dueDate.localeCompare(b.dueDate) || a.createdAt.localeCompare(b.createdAt);
+  return result * view.sortDir;
+}
+
+// ตัวเลขสรุปด้านบน (คิดจากข้อมูลทั้งหมด ไม่ขึ้นกับตัวกรอง) — กดเพื่อกรองได้
+function renderSummary(today) {
+  const total = items.length;
+  const notDone = items.filter(i => i.status !== 'done').length;
+  const overdue = items.filter(i => isOverdue(i, today)).length;
+  document.getElementById('summary').innerHTML = total === 0 ? '' : `
+    <button type="button" class="chip" data-filter-status="all">ทั้งหมด <b>${total}</b></button>
+    <button type="button" class="chip" data-filter-status="not_done">ยังไม่เสร็จ <b>${notDone}</b></button>
+    <button type="button" class="chip ${overdue ? 'chip-danger' : ''}" data-filter-status="overdue">เลยกำหนด <b>${overdue}</b></button>`;
+}
+
+// รายชื่อผู้รับผิดชอบในตัวกรอง (ดึงจากข้อมูลจริง)
+function renderOwnerOptions() {
+  const select = document.getElementById('filter-owner');
+  const owners = [...new Set(items.flatMap(i => splitList(i.owners)))]
+    .sort((a, b) => a.localeCompare(b, 'th'));
+  if (view.owner && !owners.includes(view.owner)) view.owner = '';
+  select.innerHTML = '<option value="">ทุกคน</option>' +
+    owners.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('');
+  select.value = view.owner;
+}
+
+// หัวคอลัมน์ที่กดเรียงได้
+function sortableHeader(key, label, extraClass) {
+  const active = view.sortKey === key;
+  const arrow = active ? (view.sortDir === 1 ? ' ▲' : ' ▼') : '';
+  return `<th class="sortable ${active ? 'sorted' : ''} ${extraClass || ''}" data-sort="${key}"
+             title="กดเพื่อเรียงลำดับ">${label}<span class="arrow">${arrow}</span></th>`;
+}
+
+// ข้อความใต้กำหนดเสร็จ
+function dueNote(item, today) {
+  if (item.status === 'done' || !item.dueDate) return '';
+  const days = daysBetween(today, item.dueDate);
+  if (days < 0) return `<div class="due-note overdue-text">เลยกำหนด ${-days} วัน</div>`;
+  if (days === 0) return '<div class="due-note soon-text">ครบกำหนดวันนี้</div>';
+  if (days <= 7) return `<div class="due-note soon-text">อีก ${days} วัน</div>`;
+  return '';
+}
+
 function renderList() {
   const area = document.getElementById('list-area');
-  document.getElementById('count-text').textContent =
-    items.length ? 'ทั้งหมด ' + items.length + ' รายการ' : '';
+  const today = todayIso();
+
+  renderSummary(today);
+  renderOwnerOptions();
+  renderMeetingNameSuggestions();
 
   if (items.length === 0) {
     area.innerHTML = '<p class="empty">ยังไม่มีรายการมติ — กด "+ เพิ่มรายการ" เพื่อเริ่ม</p>';
-    renderMeetingNameSuggestions();
     return;
   }
 
-  // เรียงตามกำหนดเสร็จ (ใกล้สุดก่อน) — ขั้นที่ 3 จะให้เลือกเรียงเองได้
-  const sorted = [...items].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const shown = items.filter(i => matchesFilters(i, today)).sort(compareItems);
 
-  const rows = sorted.map(item => `
-    <tr>
+  if (shown.length === 0) {
+    area.innerHTML = '<p class="empty">ไม่พบรายการที่ตรงกับตัวกรอง — ลองกด "ล้างตัวกรอง"</p>';
+    return;
+  }
+
+  const rows = shown.map(item => `
+    <tr class="${isOverdue(item, today) ? 'row-overdue' : ''}">
       <td>
         <div class="strong">${escapeHtml(item.meetingName)}</div>
         <div class="muted">ครั้งที่ ${escapeHtml(item.meetingNo)}</div>
@@ -146,34 +250,80 @@ function renderList() {
         ${splitList(item.owners).map(escapeHtml).join('<br>')}
         ${item.emails ? `<div class="muted small">${splitList(item.emails).map(escapeHtml).join('<br>')}</div>` : ''}
       </td>
-      <td class="nowrap">${formatThaiDate(item.dueDate)}</td>
+      <td class="nowrap">${formatThaiDate(item.dueDate)}${dueNote(item, today)}</td>
       <td><span class="badge badge-${item.status}">${STATUS_LABELS[item.status] || item.status}</span></td>
-      <td class="nowrap actions">
-        <button type="button" class="btn btn-small" data-action="edit" data-id="${item.id}">แก้ไข</button>
-        <button type="button" class="btn btn-small btn-danger" data-action="delete" data-id="${item.id}">ลบ</button>
+      <td class="nowrap">
+        <div class="actions">
+          <button type="button" class="btn btn-small" data-action="edit" data-id="${item.id}">แก้ไข</button>
+          <button type="button" class="btn btn-small btn-danger" data-action="delete" data-id="${item.id}">ลบ</button>
+        </div>
       </td>
     </tr>`).join('');
 
+  const filtered = shown.length !== items.length;
   area.innerHTML = `
+    ${filtered ? `<p class="muted small result-count">แสดง ${shown.length} จาก ${items.length} รายการ</p>` : ''}
     <div class="table-wrap">
       <table class="data-table">
         <thead>
           <tr>
-            <th>การประชุม</th>
-            <th>วันที่ประชุม</th>
+            ${sortableHeader('meeting', 'การประชุม')}
+            ${sortableHeader('meetingDate', 'วันที่ประชุม')}
             <th class="col-resolution">เรื่อง/มติ</th>
-            <th>ผู้รับผิดชอบ</th>
-            <th>กำหนดเสร็จ</th>
-            <th>สถานะ</th>
+            ${sortableHeader('owners', 'ผู้รับผิดชอบ')}
+            ${sortableHeader('dueDate', 'กำหนดเสร็จ')}
+            ${sortableHeader('status', 'สถานะ')}
             <th>จัดการ</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
-
-  renderMeetingNameSuggestions();
 }
+
+// =====================================================================
+// ตัวกรองและการเรียง
+// =====================================================================
+
+const filterStatus = document.getElementById('filter-status');
+const filterOwner = document.getElementById('filter-owner');
+const filterText = document.getElementById('filter-text');
+
+filterStatus.addEventListener('change', () => { view.status = filterStatus.value; renderList(); });
+filterOwner.addEventListener('change', () => { view.owner = filterOwner.value; renderList(); });
+filterText.addEventListener('input', () => { view.text = filterText.value.trim(); renderList(); });
+
+document.getElementById('btn-clear-filters').addEventListener('click', () => {
+  view.status = 'all';
+  view.owner = '';
+  view.text = '';
+  filterStatus.value = 'all';
+  filterText.value = '';
+  renderList();
+});
+
+// กดตัวเลขสรุป → กรองตามสถานะนั้น
+document.getElementById('summary').addEventListener('click', event => {
+  const chip = event.target.closest('[data-filter-status]');
+  if (!chip) return;
+  view.status = chip.dataset.filterStatus;
+  filterStatus.value = view.status;
+  renderList();
+});
+
+// กดหัวคอลัมน์ → เรียง (กดซ้ำ = สลับน้อยไปมาก/มากไปน้อย)
+document.getElementById('list-area').addEventListener('click', event => {
+  const th = event.target.closest('th[data-sort]');
+  if (!th) return;
+  const key = th.dataset.sort;
+  if (view.sortKey === key) {
+    view.sortDir = -view.sortDir;
+  } else {
+    view.sortKey = key;
+    view.sortDir = 1;
+  }
+  renderList();
+});
 
 // เติมรายชื่อการประชุมที่เคยกรอก ให้เลือกได้ตอนพิมพ์
 function renderMeetingNameSuggestions() {

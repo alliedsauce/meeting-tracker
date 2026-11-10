@@ -16,7 +16,34 @@
     <!-- แถบเครื่องมือ -->
     <section class="toolbar" id="toolbar">
       <button type="button" class="btn btn-primary" id="btn-add">+ เพิ่มรายการ</button>
-      <span class="muted" id="count-text"></span>
+      <!-- ตัวเลขสรุป (app.js เป็นผู้เติม) -->
+      <div class="summary" id="summary"></div>
+    </section>
+
+    <!-- แถบตัวกรอง -->
+    <section class="filters" id="filters">
+      <label>
+        <span>สถานะ</span>
+        <select id="filter-status">
+          <option value="all">ทั้งหมด</option>
+          <option value="not_done">ยังไม่เสร็จ (ทุกสถานะที่ยังไม่เสร็จ)</option>
+          <option value="overdue">เลยกำหนด</option>
+          <option value="not_started">ยังไม่เริ่ม</option>
+          <option value="in_progress">กำลังดำเนินการ</option>
+          <option value="done">เสร็จแล้ว</option>
+        </select>
+      </label>
+      <label>
+        <span>ผู้รับผิดชอบ</span>
+        <select id="filter-owner">
+          <option value="">ทุกคน</option>
+        </select>
+      </label>
+      <label class="grow">
+        <span>ค้นหา</span>
+        <input type="search" id="filter-text" placeholder="พิมพ์คำในชื่อการประชุม มติ ผู้รับผิดชอบ หรือหมายเหตุ">
+      </label>
+      <button type="button" class="btn" id="btn-clear-filters">ล้างตัวกรอง</button>
     </section>
 
     <!-- พื้นที่ตารางรายการมติ (app.js เป็นผู้สร้างตาราง) -->
