@@ -3,6 +3,9 @@
 *.xls
 *.csv
 
+# ค่าตั้งของ Claude Code (ใช้ตอนทดสอบเท่านั้น)
+.claude/
+
 # ไฟล์ชั่วคราวของ Office และ Windows
 ~$*
 Thumbs.db

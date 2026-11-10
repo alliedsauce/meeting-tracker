@@ -13,12 +13,13 @@
   </header>
 
   <main>
-    <!-- แถบเครื่องมือ (ปุ่มต่าง ๆ จะเพิ่มในขั้นถัดไป) -->
+    <!-- แถบเครื่องมือ -->
     <section class="toolbar" id="toolbar">
-      <span class="muted">ยังไม่มีเครื่องมือ — จะเพิ่มในขั้นที่ 2–5</span>
+      <button type="button" class="btn btn-primary" id="btn-add">+ เพิ่มรายการ</button>
+      <span class="muted" id="count-text"></span>
     </section>
 
-    <!-- พื้นที่ตารางรายการมติ -->
+    <!-- พื้นที่ตารางรายการมติ (app.js เป็นผู้สร้างตาราง) -->
     <section class="card" id="list-area">
       <p class="empty">ยังไม่มีรายการมติ</p>
     </section>
@@ -27,6 +28,83 @@
   <footer class="app-footer">
     <span id="status-text">กำลังโหลด...</span>
   </footer>
+
+  <!-- ===== หน้าต่างฟอร์มเพิ่ม/แก้ไขรายการ ===== -->
+  <dialog id="form-dialog">
+    <form id="item-form" novalidate>
+      <h2 id="form-title">เพิ่มรายการ</h2>
+
+      <div class="form-grid">
+        <label class="field span-2">
+          <span>ชื่อการประชุม <b class="req">*</b></span>
+          <input type="text" name="meetingName" list="meeting-names" autocomplete="off"
+                 placeholder="เช่น คณะกรรมการวิชาการ">
+          <small class="error-msg"></small>
+        </label>
+
+        <label class="field">
+          <span>ครั้งที่ <b class="req">*</b></span>
+          <input type="text" name="meetingNo" placeholder="เช่น 5/2569">
+          <small class="error-msg"></small>
+        </label>
+
+        <label class="field">
+          <span>วันที่ประชุม <b class="req">*</b></span>
+          <input type="date" name="meetingDate">
+          <small class="error-msg"></small>
+        </label>
+
+        <label class="field span-2">
+          <span>เรื่อง/มติ <b class="req">*</b></span>
+          <textarea name="resolution" rows="3"></textarea>
+          <small class="error-msg"></small>
+        </label>
+
+        <label class="field span-2">
+          <span>ผู้รับผิดชอบ <b class="req">*</b></span>
+          <input type="text" name="owners" placeholder="เช่น ผศ.ดร.สมชาย ใจดี, คุณสมหญิง รักงาน">
+          <small class="hint">หลายคนให้คั่นด้วยจุลภาค ( , )</small>
+          <small class="error-msg"></small>
+        </label>
+
+        <label class="field span-2">
+          <span>อีเมล</span>
+          <input type="text" name="emails" placeholder="เช่น somchai@utcc.ac.th, somying@utcc.ac.th">
+          <small class="hint">หลายอีเมลให้คั่นด้วยจุลภาค ( , ) — จำเป็นสำหรับการร่างอีเมล</small>
+          <small class="error-msg"></small>
+        </label>
+
+        <label class="field">
+          <span>กำหนดเสร็จ <b class="req">*</b></span>
+          <input type="date" name="dueDate">
+          <small class="error-msg"></small>
+        </label>
+
+        <label class="field">
+          <span>สถานะ <b class="req">*</b></span>
+          <select name="status">
+            <option value="not_started">ยังไม่เริ่ม</option>
+            <option value="in_progress">กำลังดำเนินการ</option>
+            <option value="done">เสร็จแล้ว</option>
+          </select>
+          <small class="error-msg"></small>
+        </label>
+
+        <label class="field span-2">
+          <span>หมายเหตุ</span>
+          <textarea name="note" rows="2"></textarea>
+        </label>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="btn-cancel">ยกเลิก</button>
+        <button type="submit" class="btn btn-primary">บันทึก</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- รายชื่อการประชุมที่เคยกรอก ใช้แนะนำตอนพิมพ์ -->
+  <datalist id="meeting-names"></datalist>
 
   <!-- ไลบรารีอ่าน/เขียน Excel (SheetJS) เก็บไว้ในเครื่อง ใช้ได้แม้ไม่มีอินเทอร์เน็ต -->
   <script src="lib/xlsx.full.min.js"></script>
