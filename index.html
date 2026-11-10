@@ -17,9 +17,16 @@
     <section class="toolbar" id="toolbar">
       <button type="button" class="btn btn-primary" id="btn-add">+ เพิ่มรายการ</button>
       <button type="button" class="btn" id="btn-settings">ตั้งค่าผู้ส่งอีเมล</button>
+      <button type="button" class="btn" id="btn-export">ส่งออก Excel</button>
+      <button type="button" class="btn" id="btn-import">นำเข้า Excel</button>
+      <!-- ช่องเลือกไฟล์ (ซ่อนไว้ กดผ่านปุ่ม "นำเข้า Excel") -->
+      <input type="file" id="import-file" accept=".xlsx,.xls" hidden>
       <!-- ตัวเลขสรุป (app.js เป็นผู้เติม) -->
       <div class="summary" id="summary"></div>
     </section>
+
+    <!-- สถานะการสำรองข้อมูล (app.js เป็นผู้เติม) -->
+    <p class="backup-status" id="backup-status" hidden></p>
 
     <!-- แถบตัวกรอง -->
     <section class="filters" id="filters">

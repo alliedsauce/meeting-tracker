@@ -9,6 +9,8 @@
 
 // ชื่อที่ใช้เก็บข้อมูลใน localStorage (ห้ามเปลี่ยน ไม่อย่างนั้นข้อมูลเดิมจะหาไม่เจอ)
 const STORAGE_KEY = 'meetingTracker.items';
+const LAST_CHANGE_KEY = 'meetingTracker.lastChange';   // เวลาที่แก้ข้อมูลล่าสุด
+const LAST_EXPORT_KEY = 'meetingTracker.lastExport';   // เวลาที่สำรองเป็น Excel ล่าสุด
 
 // สถานะ: ค่าที่เก็บในระบบ → ข้อความที่แสดง
 const STATUS_LABELS = {
@@ -50,6 +52,9 @@ function loadItems() {
 function saveItems() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    // จำเวลาที่แก้ข้อมูลล่าสุด เพื่อเตือนว่ามีข้อมูลใหม่ที่ยังไม่ได้สำรอง
+    localStorage.setItem(LAST_CHANGE_KEY, new Date().toISOString());
+    renderBackupStatus();
     return true;
   } catch (err) {
     alert('บันทึกข้อมูลไม่สำเร็จ: ' + err.message);
@@ -406,8 +411,22 @@ function readForm() {
     note: v('note'),
   };
 
-  let ok = true;
-  const fail = (name, msg) => { showError(name, msg); ok = false; };
+  const problems = validateItem(data);
+  if (problems.length) {
+    problems.forEach(([name, msg]) => showError(name, msg));
+    // เลื่อนไปช่องแรกที่ผิด
+    const first = form.querySelector('.has-error input, .has-error textarea, .has-error select');
+    if (first) first.focus();
+    return null;
+  }
+  return data;
+}
+
+// ตรวจข้อมูลหนึ่งรายการ — ใช้ร่วมกันทั้งฟอร์มและการนำเข้า Excel
+// คืนค่ารายการปัญหา [[ชื่อช่อง, ข้อความ], ...]  (ว่าง = ถูกต้อง)
+function validateItem(data) {
+  const problems = [];
+  const fail = (name, msg) => problems.push([name, msg]);
 
   if (!data.meetingName) fail('meetingName', 'กรุณากรอกชื่อการประชุม');
   if (!data.meetingNo) fail('meetingNo', 'กรุณากรอกครั้งที่');
@@ -423,14 +442,7 @@ function readForm() {
   if (badEmails.length) fail('emails', 'รูปแบบอีเมลไม่ถูกต้อง: ' + badEmails.join(', '));
 
   if (!STATUS_LABELS[data.status]) fail('status', 'กรุณาเลือกสถานะ');
-
-  if (!ok) {
-    // เลื่อนไปช่องแรกที่ผิด
-    const first = form.querySelector('.has-error input, .has-error textarea, .has-error select');
-    if (first) first.focus();
-    return null;
-  }
-  return data;
+  return problems;
 }
 
 form.addEventListener('submit', event => {
@@ -750,6 +762,390 @@ document.getElementById('sent-history').addEventListener('click', event => {
 });
 
 // =====================================================================
+// Excel: ส่งออก / นำเข้า
+// =====================================================================
+
+// คอลัมน์ในไฟล์ Excel (ลำดับนี้ = ลำดับคอลัมน์ในไฟล์)
+// type: 'date' = เซลล์วันที่, 'dateList' = หลายวันที่คั่นจุลภาค, 'status' = แปลงเป็นข้อความไทย
+const EXCEL_COLUMNS = [
+  { key: 'id',          label: 'รหัส',          width: 16 },
+  { key: 'meetingName', label: 'ชื่อการประชุม',   width: 28, required: true },
+  { key: 'meetingNo',   label: 'ครั้งที่',        width: 10, required: true },
+  { key: 'meetingDate', label: 'วันที่ประชุม',    width: 13, required: true, type: 'date' },
+  { key: 'resolution',  label: 'เรื่อง/มติ',      width: 50, required: true },
+  { key: 'owners',      label: 'ผู้รับผิดชอบ',    width: 30, required: true },
+  { key: 'emails',      label: 'อีเมล',          width: 35 },
+  { key: 'dueDate',     label: 'กำหนดเสร็จ',     width: 13, required: true, type: 'date' },
+  { key: 'status',      label: 'สถานะ',          width: 15, required: true, type: 'status' },
+  { key: 'note',        label: 'หมายเหตุ',       width: 30 },
+  { key: 'sentDates',   label: 'วันที่ส่งอีเมล',   width: 24, type: 'dateList' },
+  { key: 'createdAt',   label: 'สร้างเมื่อ',       width: 22 },
+  { key: 'updatedAt',   label: 'แก้ไขล่าสุด',     width: 22 },
+];
+
+const DATA_SHEET = 'มติประชุม';
+const SETTINGS_SHEET = 'ตั้งค่าผู้ส่ง';
+const SETTINGS_LABELS = {
+  senderName: 'ชื่อผู้ส่ง',
+  senderPosition: 'ตำแหน่ง',
+  senderOrg: 'หน่วยงาน',
+  senderContact: 'ช่องทางติดต่อ',
+};
+const EXCEL_DATE_FORMAT = 'dd/mm/yyyy';
+
+// ----- แปลงวันที่ ระหว่างระบบกับ Excel -----
+// Excel เก็บวันที่เป็นตัวเลข "จำนวนวันนับจาก 30 ธ.ค. 1899"
+// คำนวณแบบ UTC ทั้งหมด เพื่อไม่ให้วันที่เลื่อนเพราะเขตเวลา
+const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
+
+function isoToExcelSerial(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return (Date.UTC(y, m - 1, d) - EXCEL_EPOCH) / 86400000;
+}
+
+function makeIso(y, m, d) {
+  if (y > 2400) y -= 543; // ปี พ.ศ. → ค.ศ.
+  const date = new Date(Date.UTC(y, m - 1, d));
+  // ตรวจว่าเป็นวันที่มีอยู่จริง (เช่น 31/02 ไม่ผ่าน)
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  if (y < 1990 || y > 2200) return null;
+  const pad = n => String(n).padStart(2, '0');
+  return y + '-' + pad(m) + '-' + pad(d);
+}
+
+// แปลงค่าจากเซลล์ Excel เป็น "ปปปป-ดด-วว"  คืน '' ถ้าว่าง, null ถ้าอ่านไม่ได้
+// รับได้: เซลล์วันที่ของ Excel, "2026-11-10", "10/11/2026", "10/11/2569" (พ.ศ.)
+function parseExcelDate(value) {
+  if (value === '' || value === null || value === undefined) return '';
+  if (value instanceof Date) {
+    if (isNaN(value)) return null;
+    // บวก 12 ชม. กันวันที่เลื่อน กรณีเวลาเป็นเที่ยงคืน UTC หรือเที่ยงคืนเวลาไทย
+    const shifted = new Date(value.getTime() + 12 * 3600000);
+    return makeIso(shifted.getFullYear(), shifted.getMonth() + 1, shifted.getDate());
+  }
+  if (typeof value === 'number') {
+    const date = new Date(EXCEL_EPOCH + Math.floor(value) * 86400000);
+    return makeIso(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+  }
+  const text = String(value).trim();
+  if (text === '') return '';
+  let m = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return makeIso(+m[1], +m[2], +m[3]);
+  m = text.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+  if (m) return makeIso(+m[3], +m[2], +m[1]);
+  return null;
+}
+
+// "2026-11-10" → "10/11/2026" (ใช้กับคอลัมน์วันที่ส่งอีเมล ซึ่งเก็บเป็นข้อความ)
+function isoToDmy(iso) {
+  const [y, m, d] = iso.split('-');
+  return d + '/' + m + '/' + y;
+}
+
+// ส่วนของชื่อไฟล์ เช่น "2569-11-10" หรือ "2569-11-10_0930"
+function fileDateStamp(withTime) {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  let stamp = (now.getFullYear() + 543) + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+  if (withTime) stamp += '_' + pad(now.getHours()) + pad(now.getMinutes());
+  return stamp;
+}
+
+// ----- ส่งออก -----
+
+function buildWorkbook(list) {
+  const sorted = [...list].sort((a, b) =>
+    a.meetingDate.localeCompare(b.meetingDate) || (a.createdAt || '').localeCompare(b.createdAt || ''));
+
+  const rows = sorted.map(item => EXCEL_COLUMNS.map(col => {
+    const value = item[col.key];
+    if (col.type === 'date') return value ? isoToExcelSerial(value) : '';
+    if (col.type === 'dateList') return (value || []).map(isoToDmy).join(', ');
+    if (col.type === 'status') return STATUS_LABELS[value] || value;
+    return value ?? '';
+  }));
+
+  const sheet = XLSX.utils.aoa_to_sheet([EXCEL_COLUMNS.map(c => c.label), ...rows]);
+
+  // ให้คอลัมน์วันที่แสดงเป็นวันที่ (ไม่ใช่ตัวเลข)
+  EXCEL_COLUMNS.forEach((col, c) => {
+    if (col.type !== 'date') return;
+    for (let r = 1; r <= rows.length; r++) {
+      const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+      if (cell && cell.t === 'n') cell.z = EXCEL_DATE_FORMAT;
+    }
+  });
+  sheet['!cols'] = EXCEL_COLUMNS.map(c => ({ wch: c.width }));
+
+  const settingsSheet = XLSX.utils.aoa_to_sheet([
+    ['รายการ', 'ค่า'],
+    ...Object.entries(SETTINGS_LABELS).map(([key, label]) => [label, settings[key] || '']),
+  ]);
+  settingsSheet['!cols'] = [{ wch: 16 }, { wch: 40 }];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, DATA_SHEET);
+  XLSX.utils.book_append_sheet(workbook, settingsSheet, SETTINGS_SHEET);
+  return workbook;
+}
+
+// สร้างไฟล์ Excel และดาวน์โหลด  คืนชื่อไฟล์
+function downloadWorkbook(list, filename) {
+  XLSX.writeFile(buildWorkbook(list), filename, { compression: true });
+  return filename;
+}
+
+function markExported() {
+  localStorage.setItem(LAST_EXPORT_KEY, new Date().toISOString());
+  renderBackupStatus();
+}
+
+document.getElementById('btn-export').addEventListener('click', () => {
+  if (typeof XLSX === 'undefined') { alert('โหลดไลบรารี Excel ไม่สำเร็จ — ส่งออกไม่ได้'); return; }
+  if (items.length === 0 && !confirm('ยังไม่มีรายการมติ ต้องการส่งออกไฟล์เปล่า (มีแต่หัวตาราง) หรือไม่?')) return;
+  const name = downloadWorkbook(items, `มติประชุม_${fileDateStamp(false)}.xlsx`);
+  markExported();
+  showToast(`ส่งออกแล้ว ${items.length} รายการ → ${name} (อยู่ในโฟลเดอร์ Downloads)`);
+});
+
+// ----- นำเข้า -----
+
+// อ่านไฟล์ Excel → { items, settings, errors }
+function parseWorkbook(workbook) {
+  const errors = [];
+  const sheetName = workbook.SheetNames.includes(DATA_SHEET) ? DATA_SHEET : workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet || !sheet['!ref']) return { items: [], settings: null, errors: ['ไม่พบข้อมูลในไฟล์'] };
+
+  const startRow = XLSX.utils.decode_range(sheet['!ref']).s.r; // แถวแรกของข้อมูล (เริ่มนับ 0)
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '', blankrows: true });
+
+  // หาตำแหน่งคอลัมน์จากหัวตาราง
+  const header = (rows[0] || []).map(h => String(h).trim());
+  const colIndex = {};
+  for (const col of EXCEL_COLUMNS) colIndex[col.key] = header.indexOf(col.label);
+  const missing = EXCEL_COLUMNS.filter(c => c.required && colIndex[c.key] === -1).map(c => c.label);
+  if (missing.length) {
+    return {
+      items: [], settings: null,
+      errors: [`ไม่พบคอลัมน์: ${missing.join(', ')}`,
+               'ไฟล์นี้อาจไม่ใช่ไฟล์ที่ส่งออกจากระบบนี้ หรือหัวตารางในแถวแรกถูกแก้ไข'],
+    };
+  }
+
+  const statusByLabel = {};
+  for (const [key, label] of Object.entries(STATUS_LABELS)) { statusByLabel[label] = key; statusByLabel[key] = key; }
+
+  const LABEL_OF = Object.fromEntries(EXCEL_COLUMNS.map(c => [c.key, c.label]));
+  const seenIds = new Set();
+  const now = new Date().toISOString();
+  const result = [];
+
+  rows.slice(1).forEach((row, index) => {
+    const rowNumber = startRow + index + 2; // เลขแถวตามที่เห็นใน Excel
+    const get = key => (colIndex[key] === -1 ? '' : row[colIndex[key]]);
+    const text = key => String(get(key) ?? '').replace(/\r\n?/g, '\n').trim();
+
+    // ข้ามแถวว่าง
+    if (row.every(cell => String(cell ?? '').trim() === '')) return;
+
+    const rowErrors = [];
+    const readDate = key => {
+      const iso = parseExcelDate(get(key));
+      if (iso === null) { rowErrors.push(`${LABEL_OF[key]} อ่านไม่ได้ ("${text(key)}") — ใช้รูปแบบ วว/ดด/ปปปป`); return ''; }
+      return iso;
+    };
+
+    const statusText = text('status');
+    const data = {
+      meetingName: text('meetingName'),
+      meetingNo: text('meetingNo'),
+      meetingDate: readDate('meetingDate'),
+      resolution: text('resolution'),
+      owners: joinList(splitList(text('owners'))),
+      emails: joinList(splitList(text('emails'))),
+      dueDate: readDate('dueDate'),
+      status: statusByLabel[statusText] || '',
+      note: text('note'),
+    };
+
+    // วันที่ส่งอีเมล (หลายวัน คั่นด้วยจุลภาค)
+    const sentDates = [];
+    for (const part of splitList(text('sentDates'))) {
+      const iso = parseExcelDate(part);
+      if (iso) sentDates.push(iso);
+      else rowErrors.push(`วันที่ส่งอีเมลอ่านไม่ได้ ("${part}")`);
+    }
+
+    for (const [field, msg] of validateItem(data)) {
+      if (field === 'status') {
+        rowErrors.push(`สถานะ "${statusText}" ไม่ถูกต้อง — ใช้ได้เฉพาะ: ${Object.values(STATUS_LABELS).join(' / ')}`);
+      } else if ((field === 'meetingDate' || field === 'dueDate') && rowErrors.some(e => e.startsWith(LABEL_OF[field]))) {
+        // อ่านวันที่ไม่ได้ แจ้งไปแล้วด้านบน
+      } else {
+        rowErrors.push(msg);
+      }
+    }
+
+    if (rowErrors.length) {
+      rowErrors.forEach(e => errors.push(`แถว ${rowNumber}: ${e}`));
+      return;
+    }
+
+    // รหัส: ใช้ของเดิมถ้ามี (และไม่ซ้ำ) ไม่อย่างนั้นสร้างใหม่
+    let id = text('id');
+    if (!id || seenIds.has(id)) id = newId();
+    seenIds.add(id);
+
+    const validTime = t => (t && !isNaN(Date.parse(t)) ? t : '');
+    result.push({
+      id,
+      ...data,
+      sentDates: [...new Set(sentDates)].sort(),
+      createdAt: validTime(text('createdAt')) || now,
+      updatedAt: validTime(text('updatedAt')) || now,
+    });
+  });
+
+  // ตั้งค่าผู้ส่ง (ถ้ามีชีตนี้)
+  let importedSettings = null;
+  const sSheet = workbook.Sheets[SETTINGS_SHEET];
+  if (sSheet) {
+    const sRows = XLSX.utils.sheet_to_json(sSheet, { header: 1, raw: false, defval: '' });
+    importedSettings = {};
+    for (const [key, label] of Object.entries(SETTINGS_LABELS)) {
+      const found = sRows.find(r => String(r[0]).trim() === label);
+      importedSettings[key] = found ? String(found[1] ?? '').trim() : '';
+    }
+  }
+
+  return { items: result, settings: importedSettings, errors };
+}
+
+const importInput = document.getElementById('import-file');
+
+document.getElementById('btn-import').addEventListener('click', () => {
+  if (typeof XLSX === 'undefined') { alert('โหลดไลบรารี Excel ไม่สำเร็จ — นำเข้าไม่ได้'); return; }
+  importInput.value = ''; // ให้เลือกไฟล์เดิมซ้ำได้
+  importInput.click();
+});
+
+importInput.addEventListener('change', () => {
+  const file = importInput.files[0];
+  if (file) importFromFile(file);
+});
+
+async function importFromFile(file) {
+  let workbook;
+  try {
+    workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  } catch (err) {
+    alert('เปิดไฟล์ไม่ได้ — กรุณาเลือกไฟล์ Excel (.xlsx)\n\n' + err.message);
+    return;
+  }
+
+  const parsed = parseWorkbook(workbook);
+
+  if (parsed.errors.length) {
+    const shown = parsed.errors.slice(0, 15);
+    const more = parsed.errors.length > shown.length ? `\n... และอีก ${parsed.errors.length - shown.length} จุด` : '';
+    alert(`นำเข้าไม่ได้ เพราะพบปัญหาในไฟล์ "${file.name}" ${parsed.errors.length} จุด:\n\n` +
+          shown.join('\n') + more +
+          '\n\nกรุณาแก้ในไฟล์ Excel แล้วนำเข้าใหม่ (ข้อมูลปัจจุบันยังไม่ถูกเปลี่ยนแปลง)');
+    return;
+  }
+  if (parsed.items.length === 0) {
+    alert(`ไม่พบรายการมติในไฟล์ "${file.name}" (ข้อมูลปัจจุบันยังไม่ถูกเปลี่ยนแปลง)`);
+    return;
+  }
+
+  const backupNote = items.length
+    ? `\n\nก่อนแทนที่ ระบบจะดาวน์โหลดไฟล์สำรองข้อมูลปัจจุบัน (${items.length} รายการ) ให้อัตโนมัติ`
+    : '';
+  const ok = confirm(
+    `นำเข้าจากไฟล์ "${file.name}"\n\n` +
+    `• ข้อมูลปัจจุบัน ${items.length} รายการ จะถูกแทนที่ทั้งหมด\n` +
+    `• ด้วยข้อมูลจากไฟล์ ${parsed.items.length} รายการ` +
+    (parsed.settings ? '\n• รวมถึงการตั้งค่าผู้ส่งอีเมล' : '') +
+    backupNote + '\n\nต้องการทำต่อหรือไม่?');
+  if (!ok) return;
+
+  // สำรองข้อมูลปัจจุบันก่อนแทนที่
+  let backupName = '';
+  if (items.length) {
+    try {
+      backupName = downloadWorkbook(items, `สำรองก่อนนำเข้า_${fileDateStamp(true)}.xlsx`);
+    } catch (err) {
+      alert('สร้างไฟล์สำรองไม่สำเร็จ จึงยกเลิกการนำเข้า (ข้อมูลปัจจุบันยังอยู่ครบ)\n\n' + err.message);
+      return;
+    }
+  }
+
+  const previousItems = items;
+  items = parsed.items;
+  if (!saveItems()) {
+    items = previousItems;
+    renderList();
+    return;
+  }
+  if (parsed.settings) {
+    settings = parsed.settings;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  }
+  markExported(); // ข้อมูลตอนนี้ตรงกับไฟล์ที่นำเข้า ถือว่ามีสำรองแล้ว
+  renderList();
+  showToast(`นำเข้าแล้ว ${items.length} รายการ` +
+            (backupName ? ` · ไฟล์สำรองข้อมูลเดิม: ${backupName} (โฟลเดอร์ Downloads)` : ''));
+}
+
+// ----- สถานะการสำรองข้อมูล -----
+
+const thaiTimeFormat = new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit' });
+
+function renderBackupStatus() {
+  const el = document.getElementById('backup-status');
+  if (items.length === 0) { el.hidden = true; return; }
+
+  const lastExport = localStorage.getItem(LAST_EXPORT_KEY);
+  const lastChange = localStorage.getItem(LAST_CHANGE_KEY);
+  el.hidden = false;
+
+  if (!lastExport) {
+    el.className = 'backup-status warn';
+    el.textContent = 'ยังไม่เคยสำรองข้อมูล — กด "ส่งออก Excel" เพื่อเก็บไฟล์สำรองไว้ (ข้อมูลอยู่ใน browser นี้เท่านั้น)';
+    return;
+  }
+
+  const exported = new Date(lastExport);
+  const pad = n => String(n).padStart(2, '0');
+  const exportedIso = exported.getFullYear() + '-' + pad(exported.getMonth() + 1) + '-' + pad(exported.getDate());
+  const days = daysBetween(exportedIso, todayIso());
+  const changedAfter = lastChange && lastChange > lastExport;
+
+  let text = `สำรองข้อมูลล่าสุด ${formatThaiDate(exportedIso)} เวลา ${thaiTimeFormat.format(exported)} น.`;
+  if (days > 0) text += ` (${days} วันที่แล้ว)`;
+  if (changedAfter) text += ' · มีการแก้ไขหลังจากนั้น ควรส่งออกใหม่';
+
+  el.className = 'backup-status ' + (changedAfter ? 'warn' : '');
+  el.textContent = text;
+}
+
+// ----- ข้อความแจ้งชั่วคราวมุมล่าง -----
+
+function showToast(message) {
+  let toast = document.getElementById('toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add('show');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => toast.classList.remove('show'), 6000);
+}
+
+// =====================================================================
 // เริ่มทำงานเมื่อเปิดหน้า
 // =====================================================================
 
@@ -765,4 +1161,5 @@ function checkLibraries() {
 
 items = loadItems();
 renderList();
+renderBackupStatus();
 checkLibraries();
