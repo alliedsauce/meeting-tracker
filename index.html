@@ -16,6 +16,7 @@
     <!-- แถบเครื่องมือ -->
     <section class="toolbar" id="toolbar">
       <button type="button" class="btn btn-primary" id="btn-add">+ เพิ่มรายการ</button>
+      <button type="button" class="btn" id="btn-settings">ตั้งค่าผู้ส่งอีเมล</button>
       <!-- ตัวเลขสรุป (app.js เป็นผู้เติม) -->
       <div class="summary" id="summary"></div>
     </section>
@@ -125,6 +126,87 @@
 
       <div class="dialog-actions">
         <button type="button" class="btn" id="btn-cancel">ยกเลิก</button>
+        <button type="submit" class="btn btn-primary">บันทึก</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ===== หน้าต่างร่างอีเมล ===== -->
+  <dialog id="draft-dialog" class="wide">
+    <h2>ร่างอีเมลติดตามมติ</h2>
+    <p class="muted small" id="draft-context"></p>
+    <div class="warning" id="draft-warning" hidden></div>
+
+    <div class="draft-field">
+      <div class="draft-label">
+        <span>อีเมลผู้รับ</span>
+        <button type="button" class="btn btn-small btn-copy" data-copy="draft-to">คัดลอกอีเมลผู้รับ</button>
+      </div>
+      <input type="text" id="draft-to">
+    </div>
+
+    <div class="draft-field">
+      <div class="draft-label">
+        <span>หัวเรื่อง</span>
+        <button type="button" class="btn btn-small btn-copy" data-copy="draft-subject">คัดลอกหัวเรื่อง</button>
+      </div>
+      <input type="text" id="draft-subject">
+    </div>
+
+    <div class="draft-field">
+      <div class="draft-label">
+        <span>เนื้อหา</span>
+        <button type="button" class="btn btn-small btn-copy" data-copy="draft-body">คัดลอกเนื้อหา</button>
+      </div>
+      <textarea id="draft-body" rows="16"></textarea>
+      <small class="hint">แก้ข้อความได้ก่อนคัดลอก (ข้อความที่แก้จะไม่ถูกเก็บไว้ ปิดแล้วเปิดใหม่จะได้ร่างเดิม)</small>
+    </div>
+
+    <!-- บันทึกการส่ง -->
+    <div class="sent-box">
+      <div class="sent-record">
+        <label>
+          <span>วันที่ส่ง</span>
+          <input type="date" id="sent-date">
+        </label>
+        <button type="button" class="btn btn-success" id="btn-mark-sent">บันทึกว่าส่งแล้ว</button>
+        <span class="sent-msg" id="sent-msg"></span>
+      </div>
+      <div id="sent-history"></div>
+    </div>
+
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="btn-draft-reset">สร้างร่างใหม่</button>
+      <button type="button" class="btn btn-primary" id="btn-draft-close">ปิด</button>
+    </div>
+  </dialog>
+
+  <!-- ===== หน้าต่างตั้งค่าผู้ส่ง ===== -->
+  <dialog id="settings-dialog">
+    <form id="settings-form" novalidate>
+      <h2>ตั้งค่าผู้ส่งอีเมล</h2>
+      <p class="muted small">ข้อมูลนี้ใช้ลงท้ายร่างอีเมลทุกฉบับ กรอกครั้งเดียว</p>
+      <div class="form-grid">
+        <label class="field span-2">
+          <span>ชื่อ-นามสกุล ผู้ส่ง</span>
+          <input type="text" name="senderName" placeholder="เช่น นางสาวสมใจ ตั้งใจงาน">
+        </label>
+        <label class="field span-2">
+          <span>ตำแหน่ง</span>
+          <input type="text" name="senderPosition" placeholder="เช่น เจ้าหน้าที่บริหารงานทั่วไป">
+        </label>
+        <label class="field span-2">
+          <span>หน่วยงาน</span>
+          <input type="text" name="senderOrg" placeholder="เช่น สำนักวิชาการ">
+          <small class="hint">ใช้ในเนื้อหาด้วย เช่น "สำนักวิชาการจึงใคร่ขอความอนุเคราะห์..."</small>
+        </label>
+        <label class="field span-2">
+          <span>ช่องทางติดต่อ (ไม่บังคับ)</span>
+          <input type="text" name="senderContact" placeholder="เช่น โทร. 0-2697-6000 ต่อ 1234">
+        </label>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="btn-settings-cancel">ยกเลิก</button>
         <button type="submit" class="btn btn-primary">บันทึก</button>
       </div>
     </form>

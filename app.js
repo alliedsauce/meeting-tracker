@@ -99,6 +99,16 @@ function formatThaiDate(iso) {
   return thaiDateFormat.format(new Date(y, m - 1, d));
 }
 
+// "2026-11-10" → "10 พฤศจิกายน 2569" (ใช้ในอีเมล)
+const thaiDateLongFormat = new Intl.DateTimeFormat('th-TH', {
+  day: 'numeric', month: 'long', year: 'numeric',
+});
+function formatThaiDateLong(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  return thaiDateLongFormat.format(new Date(y, m - 1, d));
+}
+
 // ป้องกันข้อความที่ผู้ใช้กรอกถูกตีความเป็นโค้ด HTML
 function escapeHtml(text) {
   return String(text ?? '')
@@ -251,9 +261,13 @@ function renderList() {
         ${item.emails ? `<div class="muted small">${splitList(item.emails).map(escapeHtml).join('<br>')}</div>` : ''}
       </td>
       <td class="nowrap">${formatThaiDate(item.dueDate)}${dueNote(item, today)}</td>
-      <td><span class="badge badge-${item.status}">${STATUS_LABELS[item.status] || item.status}</span></td>
+      <td>
+        <span class="badge badge-${item.status}">${STATUS_LABELS[item.status] || item.status}</span>
+        ${sentNote(item)}
+      </td>
       <td class="nowrap">
         <div class="actions">
+          <button type="button" class="btn btn-small btn-mail" data-action="draft" data-id="${item.id}">ร่างอีเมล</button>
           <button type="button" class="btn btn-small" data-action="edit" data-id="${item.id}">แก้ไข</button>
           <button type="button" class="btn btn-small btn-danger" data-action="delete" data-id="${item.id}">ลบ</button>
         </div>
@@ -451,7 +465,9 @@ document.getElementById('list-area').addEventListener('click', event => {
   const item = items.find(i => i.id === button.dataset.id);
   if (!item) return;
 
-  if (button.dataset.action === 'edit') {
+  if (button.dataset.action === 'draft') {
+    openDraft(item);
+  } else if (button.dataset.action === 'edit') {
     openForm(item);
   } else if (button.dataset.action === 'delete') {
     const preview = item.resolution.length > 80 ? item.resolution.slice(0, 80) + '...' : item.resolution;
@@ -463,6 +479,273 @@ document.getElementById('list-area').addEventListener('click', event => {
       saveItems();
       renderList();
     }
+  }
+});
+
+// =====================================================================
+// ตั้งค่าผู้ส่งอีเมล
+// =====================================================================
+
+const SETTINGS_KEY = 'meetingTracker.settings';
+const SETTINGS_FIELDS = ['senderName', 'senderPosition', 'senderOrg', 'senderContact'];
+
+function loadSettings() {
+  try {
+    return { senderOrg: 'สำนักวิชาการ', ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+  } catch (err) {
+    return { senderOrg: 'สำนักวิชาการ' };
+  }
+}
+
+let settings = loadSettings();
+
+const settingsDialog = document.getElementById('settings-dialog');
+const settingsForm = document.getElementById('settings-form');
+
+function openSettings() {
+  for (const name of SETTINGS_FIELDS) settingsForm.elements[name].value = settings[name] || '';
+  settingsDialog.showModal();
+}
+
+settingsForm.addEventListener('submit', event => {
+  event.preventDefault();
+  const next = {};
+  for (const name of SETTINGS_FIELDS) next[name] = settingsForm.elements[name].value.trim();
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+  } catch (err) {
+    alert('บันทึกการตั้งค่าไม่สำเร็จ: ' + err.message);
+    return;
+  }
+  settings = next;
+  settingsDialog.close();
+  // ถ้าเปิดร่างอีเมลค้างอยู่ ให้สร้างร่างใหม่ด้วยข้อมูลผู้ส่งล่าสุด
+  if (draftItemId) fillDraft(items.find(i => i.id === draftItemId));
+});
+
+document.getElementById('btn-settings').addEventListener('click', openSettings);
+document.getElementById('btn-settings-cancel').addEventListener('click', () => settingsDialog.close());
+
+// =====================================================================
+// ร่างอีเมล
+// =====================================================================
+
+// ["คุณ ก", "คุณ ข", "คุณ ค"] → "คุณ ก, คุณ ข และคุณ ค"
+// (ใช้จุลภาคคั่น เพราะชื่อมีช่องว่างระหว่างชื่อ-นามสกุลอยู่แล้ว)
+function joinThaiNames(names) {
+  if (names.length <= 1) return names[0] || '';
+  return names.slice(0, -1).join(', ') + ' และ' + names[names.length - 1];
+}
+
+// ทำให้ชื่อการประชุมขึ้นต้นด้วย "ที่ประชุม" เสมอ
+// "คณะกรรมการวิชาการ" → "ที่ประชุมคณะกรรมการวิชาการ", "ที่ประชุมคณบดี" → คงเดิม
+function meetingBodyName(name) {
+  if (name.startsWith('ที่ประชุม')) return name;
+  return 'ที่ประชุม' + name.replace(/^การประชุม/, '');
+}
+
+// สร้างร่างอีเมลจากข้อมูลรายการ → { to, subject, body }
+function buildDraft(item, today) {
+  const meeting = meetingBodyName(item.meetingName);
+  const org = settings.senderOrg || '';
+  const overdue = isOverdue(item, today);
+
+  const subject = `ขอติดตามความคืบหน้าการดำเนินงานตามมติ${meeting} ครั้งที่ ${item.meetingNo}`;
+
+  // มติหลายบรรทัด: ย่อหน้าทุกบรรทัด
+  const resolution = item.resolution.split('\n').map(line => '        ' + line.trim()).join('\n');
+
+  const request = overdue
+    ? `เนื่องจากขณะนี้ได้ครบกำหนดระยะเวลาดังกล่าวแล้ว ${org}จึงใคร่ขอความอนุเคราะห์ท่านโปรดแจ้งผลหรือความคืบหน้าการดำเนินงาน หากมีข้อขัดข้องประการใด ขอได้โปรดแจ้งให้ทราบ เพื่อจะได้ประสานงานและรายงานต่อที่ประชุมต่อไป`
+    : `${org}จึงใคร่ขอความอนุเคราะห์ท่านโปรดแจ้งความคืบหน้าการดำเนินงานดังกล่าว เพื่อจะได้รวบรวมและรายงานต่อที่ประชุมต่อไป`;
+
+  const signature = [
+    settings.senderName || '(ชื่อผู้ส่ง)',
+    settings.senderPosition,
+    settings.senderOrg,
+    settings.senderContact,
+  ].filter(Boolean).join('\n');
+
+  const body =
+`เรียน ${joinThaiNames(splitList(item.owners))}
+
+        ตามที่${meeting} ครั้งที่ ${item.meetingNo} เมื่อวันที่ ${formatThaiDateLong(item.meetingDate)} ได้มีมติในเรื่อง ดังนี้
+
+${resolution}
+
+โดยมอบหมายให้ท่านเป็นผู้รับผิดชอบ และกำหนดให้ดำเนินการแล้วเสร็จภายในวันที่ ${formatThaiDateLong(item.dueDate)} นั้น
+
+        ${request.replace(/\s+/g, ' ').trim()}
+
+        จึงเรียนมาเพื่อโปรดพิจารณา
+
+ขอแสดงความนับถือ
+
+${signature}`;
+
+  // ใช้ ; คั่นผู้รับ — วางได้ทั้งใน Outlook และ Gmail
+  return { to: splitList(item.emails).join('; '), subject, body };
+}
+
+const draftDialog = document.getElementById('draft-dialog');
+let draftItemId = null;
+
+function openDraft(item) {
+  draftItemId = item.id;
+  fillDraft(item);
+  document.getElementById('sent-date').value = todayIso();
+  document.getElementById('sent-date').max = todayIso();
+  document.getElementById('sent-msg').textContent = '';
+  renderSentHistory(item);
+  draftDialog.showModal();
+}
+
+function fillDraft(item) {
+  const today = todayIso();
+  const draft = buildDraft(item, today);
+  document.getElementById('draft-to').value = draft.to;
+  document.getElementById('draft-subject').value = draft.subject;
+  document.getElementById('draft-body').value = draft.body;
+  document.getElementById('draft-context').textContent =
+    `${item.meetingName} ครั้งที่ ${item.meetingNo} · กำหนดเสร็จ ${formatThaiDate(item.dueDate)}` +
+    (isOverdue(item, today) ? ' · เลยกำหนดแล้ว (ใช้ข้อความแบบติดตามงานที่เลยกำหนด)' : '');
+
+  const warnings = [];
+  if (!item.emails) warnings.push('รายการนี้ยังไม่มีอีเมลผู้รับ — พิมพ์ในช่องผู้รับได้เลย หรือกด "แก้ไข" ในตารางเพื่อบันทึกอีเมลไว้');
+  if (!settings.senderName) warnings.push('ยังไม่ได้ตั้งชื่อผู้ส่ง — กด "ตั้งค่าผู้ส่งอีเมล" ด้านบน ลายเซ็นจะได้ครบ');
+  if (item.status === 'done') warnings.push('รายการนี้มีสถานะ "เสร็จแล้ว"');
+  const warnEl = document.getElementById('draft-warning');
+  warnEl.innerHTML = warnings.map(escapeHtml).join('<br>');
+  warnEl.hidden = warnings.length === 0;
+}
+
+function closeDraft() {
+  draftDialog.close();
+  draftItemId = null;
+}
+
+document.getElementById('btn-draft-close').addEventListener('click', closeDraft);
+draftDialog.addEventListener('close', () => { draftItemId = null; });
+
+document.getElementById('btn-draft-reset').addEventListener('click', () => {
+  if (!confirm('ข้อความที่แก้ไว้จะหายไป และกลับเป็นร่างเริ่มต้น ต้องการทำต่อหรือไม่?')) return;
+  fillDraft(items.find(i => i.id === draftItemId));
+});
+
+// ===== ปุ่มคัดลอก =====
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (err) {
+    // วิธีสำรอง สำหรับ browser ที่ไม่อนุญาต clipboard API
+    const temp = document.createElement('textarea');
+    temp.value = text;
+    temp.style.position = 'fixed';
+    temp.style.opacity = '0';
+    draftDialog.appendChild(temp);
+    temp.select();
+    const ok = document.execCommand('copy');
+    temp.remove();
+    return ok;
+  }
+}
+
+draftDialog.addEventListener('click', async event => {
+  const button = event.target.closest('.btn-copy');
+  if (!button) return;
+  const text = document.getElementById(button.dataset.copy).value;
+  if (!text.trim()) {
+    flashButton(button, 'ไม่มีข้อความ', false);
+    return;
+  }
+  const ok = await copyText(text);
+  flashButton(button, ok ? 'คัดลอกแล้ว ✓' : 'คัดลอกไม่สำเร็จ', ok);
+});
+
+// เปลี่ยนข้อความปุ่มชั่วคราว แล้วกลับเป็นข้อความเดิม
+function flashButton(button, message, ok) {
+  if (!button.dataset.label) button.dataset.label = button.textContent;
+  button.textContent = message;
+  button.classList.toggle('copied', ok);
+  button.classList.toggle('copy-failed', !ok);
+  clearTimeout(button._timer);
+  button._timer = setTimeout(() => {
+    button.textContent = button.dataset.label;
+    button.classList.remove('copied', 'copy-failed');
+  }, 1800);
+}
+
+// ===== บันทึกว่าส่งแล้ว =====
+
+// ข้อความใต้สถานะในตาราง
+function sentNote(item) {
+  const dates = item.sentDates || [];
+  if (dates.length === 0) return '';
+  const last = dates[dates.length - 1];
+  const times = dates.length > 1 ? ` (${dates.length} ครั้ง)` : '';
+  return `<div class="sent-note">ส่งอีเมลล่าสุด ${formatThaiDate(last)}${times}</div>`;
+}
+
+function renderSentHistory(item) {
+  const dates = item.sentDates || [];
+  const el = document.getElementById('sent-history');
+  if (dates.length === 0) {
+    el.innerHTML = '<p class="muted small">ยังไม่เคยบันทึกการส่งอีเมลสำหรับรายการนี้</p>';
+    return;
+  }
+  el.innerHTML = `
+    <p class="small strong">ประวัติการส่ง (${dates.length} ครั้ง)</p>
+    <ul class="sent-list">
+      ${dates.map((d, index) => `
+        <li>${formatThaiDateLong(d)}
+          <button type="button" class="link-danger" data-remove-sent="${index}" title="ลบวันที่นี้">ลบ</button>
+        </li>`).join('')}
+    </ul>`;
+}
+
+document.getElementById('btn-mark-sent').addEventListener('click', () => {
+  const item = items.find(i => i.id === draftItemId);
+  if (!item) return;
+  const date = document.getElementById('sent-date').value;
+  const msg = document.getElementById('sent-msg');
+
+  if (!date) { msg.textContent = 'กรุณาเลือกวันที่ส่ง'; msg.className = 'sent-msg error'; return; }
+  if (date > todayIso()) { msg.textContent = 'วันที่ส่งต้องไม่เกินวันนี้'; msg.className = 'sent-msg error'; return; }
+
+  item.sentDates = item.sentDates || [];
+  if (item.sentDates.includes(date)) {
+    msg.textContent = 'วันที่นี้บันทึกไว้แล้ว';
+    msg.className = 'sent-msg error';
+    return;
+  }
+  item.sentDates.push(date);
+  item.sentDates.sort();
+  item.updatedAt = new Date().toISOString();
+
+  if (saveItems()) {
+    msg.textContent = 'บันทึกแล้ว: ส่งเมื่อ ' + formatThaiDate(date);
+    msg.className = 'sent-msg ok';
+    renderSentHistory(item);
+    renderList();
+  }
+});
+
+// ลบวันที่ส่งที่บันทึกผิด
+document.getElementById('sent-history').addEventListener('click', event => {
+  const button = event.target.closest('[data-remove-sent]');
+  if (!button) return;
+  const item = items.find(i => i.id === draftItemId);
+  const index = Number(button.dataset.removeSent);
+  const date = item.sentDates[index];
+  if (!confirm('ลบวันที่ส่ง ' + formatThaiDateLong(date) + ' ออกจากประวัติ?')) return;
+  item.sentDates.splice(index, 1);
+  item.updatedAt = new Date().toISOString();
+  if (saveItems()) {
+    document.getElementById('sent-msg').textContent = '';
+    renderSentHistory(item);
+    renderList();
   }
 });
 

@@ -229,3 +229,76 @@ dialog h2 { margin: 0 0 16px; font-size: 19px; color: var(--primary); }
 .due-note { font-size: 12px; margin-top: 2px; }
 .overdue-text { color: var(--danger); font-weight: bold; }
 .soon-text { color: #8a5a00; }
+
+/* ===== ร่างอีเมล ===== */
+dialog.wide { width: min(860px, 96vw); }
+
+.btn-mail { color: var(--primary); border-color: #9fbcd8; }
+.btn-mail:hover { background: #e8f0f8; }
+.btn-success { background: #1b6e2a; border-color: #1b6e2a; color: #fff; }
+.btn-success:hover { background: #145320; }
+.btn-copy { min-width: 150px; }
+.btn-copy.copied { background: #e3f4e6; border-color: #1b6e2a; color: #1b6e2a; }
+.btn-copy.copy-failed { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
+
+.warning {
+  background: #fff4d6;
+  border: 1px solid #f0d58c;
+  color: #6b4700;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.draft-field { margin-bottom: 12px; }
+.draft-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  font-weight: bold;
+  font-size: 14px;
+}
+.draft-field input,
+.draft-field textarea {
+  font: inherit;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.draft-field textarea { resize: vertical; line-height: 1.6; }
+
+.sent-box {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 4px;
+}
+.sent-record { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.sent-record label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); }
+.sent-record input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.sent-msg { font-size: 14px; align-self: center; }
+.sent-msg.ok { color: #1b6e2a; font-weight: bold; }
+.sent-msg.error { color: var(--danger); }
+#sent-history p { margin: 10px 0 4px; }
+.sent-list { margin: 0; padding-left: 20px; font-size: 14px; }
+.sent-list li { margin: 2px 0; }
+.link-danger {
+  font: inherit;
+  font-size: 12px;
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  text-decoration: underline;
+  margin-left: 6px;
+}
+
+/* ข้อความ "ส่งอีเมลล่าสุด" ใต้สถานะในตาราง */
+.sent-note { font-size: 12px; color: #1b6e2a; margin-top: 4px; white-space: nowrap; }
